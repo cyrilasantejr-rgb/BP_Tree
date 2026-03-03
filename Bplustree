@@ -1,0 +1,497 @@
+package bptree;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * The {@code BPlusTree} class implements B+-tree operations.
+ * 
+ * @author Jeong-Hyon Hwang (jhh@cs.albany.edu)
+ * 
+ * @param <K>
+ *            the type of keys
+ * @param <V>
+ *            the type of values
+ */
+public abstract class BPlusTree<K extends Comparable<K>, V> {
+
+	/**
+	 * An {@code InvalidInsertionException} is thrown when a key already existent in a {@code BPlusTree} is attempted to
+	 * be inserted again in the {@code BPlusTree}.
+	 * 
+	 * @author Jeong-Hyon Hwang (jhh@cs.albany.edu)
+	 *
+	 */
+	public static class InvalidInsertionException extends Exception {
+
+		/**
+		 * Constructs an {@code InvalidInsertionException}.
+		 * 
+		 * @param msg
+		 *            the message for the {@code InvalidInsertionException}
+		 */
+		public InvalidInsertionException(String msg) {
+			super(msg);
+		}
+
+		/**
+		 * An automatically generated serial version UID.
+		 */
+		private static final long serialVersionUID = -2281189104087198670L;
+
+	}
+
+	/**
+	 * An {@code InvalidDeletionException} is thrown when a key non-existent in a {@code BPlusTree} is attempted to be
+	 * deleted from the {@code BPlusTree}.
+	 * 
+	 * @author Jeong-Hyon Hwang (jhh@cs.albany.edu)
+	 *
+	 */
+	public static class InvalidDeletionException extends Exception {
+
+		/**
+		 * Constructs an {@code InvalidDeletionException}.
+		 * 
+		 * @param msg
+		 *            the message for the {@code InvalidDeletionException}
+		 */
+		public InvalidDeletionException(String msg) {
+			super(msg);
+		}
+
+		/**
+		 * An automatically generated serial version UID.
+		 */
+		private static final long serialVersionUID = -2281189104087198670L;
+
+	}
+
+	/**
+	 * Returns the root {@code Node} of this {@code BPlusTree}.
+	 * 
+	 * @return the root {@code Node} of this {@code BPlusTree}; {@code null} if this {@code BPlusTree} is empty
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	public abstract Node<K> root() throws IOException;
+
+	/**
+	 * Saves the specified {@code Node} as the new root {@code Node}.
+	 * 
+	 * @param n
+	 *            a {@code Node}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	protected abstract void setRoot(Node<K> n) throws IOException;
+
+	/**
+	 * Constructs an empty {@code LeafNode}.
+	 * 
+	 * @return an empty {@code LeafNode}
+	 */
+	protected abstract LeafNode<K, V> createLeafNode();
+
+	/**
+	 * Constructs a large empty {@code LeafNode}.
+	 * 
+	 * @return an empty {@code LeafNode}
+	 */
+	protected abstract LeafNode<K, V> createLargeLeafNode();
+
+	/**
+	 * Constructs an {@code InternalNode} while adding the specified key and child {@code Node}s.
+	 * 
+	 * @param n1
+	 *            a child {@code Node}
+	 * @param k
+	 *            a key
+	 * @param n2
+	 *            a child {@code Node}
+	 * @return a new {@code InternalNode}
+	 */
+	protected abstract InternalNode<K> createInternalNode(Node<K> n1, K k, Node<K> n2);
+
+	/**
+	 * Constructs an empty {@code InternalNode}.
+	 * 
+	 * @return an empty {@code InternalNode}
+	 */
+	protected abstract InternalNode<K> createInternalNode();
+
+	/**
+	 * Constructs a large empty {@code InternalNode}.
+	 * 
+	 * @return an empty {@code InternalNode}
+	 */
+	protected abstract InternalNode<K> createLargeInternalNode();
+
+	/**
+	 * Inserts the specified key and value into this {@code BPlusTree}.
+	 * 
+	 * @param k
+	 *            the key to insert
+	 * @param v
+	 *            the value to insert
+	 * @throws InvalidInsertionException
+	 *             if a key already existent in this {@code BPlusTree} is attempted to be inserted again in the
+	 *             {@code BPlusTree}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	public void insert(K k, V v) throws InvalidInsertionException, IOException {
+		if (root() == null) {// if the tree is empty
+			LeafNode<K, V> l = createLeafNode(); // create an empty root node
+			l.insert(k, v); // insert the specified key and value into leaf node l
+			setRoot(l); // register node l as the new root
+		} else { // if the tree is not empty
+			HashMap<Node<K>, InternalNode<K>> node2parent = new HashMap<Node<K>, InternalNode<K>>();
+			// to remember the parent of each visited node
+			LeafNode<K, V> l = find(k, root(), node2parent); // find leaf node l that should contain the specified key
+			if (l.contains(k)) // no duplicate keys are allowed in the tree
+				throw new InvalidInsertionException("key: " + k);
+			if (l.hasRoom(k, v)) { // if leaf node l has room for the specified key
+				l.insert(k, v); // insert the specified key and value into leaf node l
+			} else { // if leaf node l is full and thus needs to be split
+				LeafNode<K, V> t = createLargeLeafNode(); // create a large, temporary leaf node t
+				t.append(l, 0, l.keyCount() - 1); // copy everything to temporary node t
+				t.insert(k, v); // insert the key and pointer into temporary node t
+				LeafNode<K, V> lp = createLeafNode(); // create a new leaf node lp
+				lp.setSuccessor(l.successor()); // chaining from lp to the next leaf node
+				var keyCount = l.keyCount();
+				l.clear(); // clear leaf node l
+				int m = (int) Math.ceil((keyCount + 1) / 2.0); // compute the split point
+				l.append(t, 0, m - 1); // copy the first half to leaf node l
+				lp.append(t, m, keyCount); // copy the second half to leaf node lp
+				l.setSuccessor(lp); // chaining from leaf node l to leaf node lp
+				insertInParent(l, lp.key(0), lp, node2parent); // use lp's first key as the separating key
+			}
+		}
+	}
+
+	/**
+	 * Inserts the specified key into the parent {@code Node} of the specified {@code Node}s.
+	 * 
+	 * @param n
+	 *            a {@code Node}
+	 * @param k
+	 *            the key between the {@code Node}s
+	 * @param np
+	 *            a {@code Node}
+	 * @param node2parent
+	 *            a {@code Map} remembering, for each visited {@code Node}, the parent of that {@code Node}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	protected void insertInParent(Node<K> n, K k, Node<K> np,
+			Map<Node<K>, InternalNode<K>> node2parent) throws IOException {
+		if (n.equals(root())) { // if n is the root of the tree
+			InternalNode<K> r = createInternalNode(n, k, np);
+			setRoot(r); // a new root node r containing n, k, np
+			return;
+		}
+		InternalNode<K> p = node2parent.get(n); // find the parent p of n
+		if (p.hasRoom(k, np)) { // if parent node p has room for a new entry
+			p.insertAfter(k, np, n); // insert k and np right after n
+		} else { // if p is full and thus needs to be split
+			InternalNode<K> t = createLargeInternalNode(); // crate a temporary node
+			t.copy(p, 0, p.keyCount()); // copy everything of p to the temporary node
+			t.insertAfter(k, np, n); // insert k and np after n
+			var degree = p.childCount();
+			p.clear(); // clear p
+			InternalNode<K> pp = createInternalNode(); // create a new node pp
+			int m = (int) Math.ceil((degree + 1) / 2.0); // compute the split point
+			p.copy(t, 0, m - 1); // copy the first half to parent node p
+			pp.copy(t, m, degree); // copy the second half to new node pp
+			insertInParent(p, t.key(m - 1), pp, node2parent); // use the middle key as the separating key
+		}
+	}
+
+	/**
+	 * Removes the specified key and the corresponding pointer from this {@code BPlusTree}.
+	 * 
+	 * @param k
+	 *            the key to delete
+	 * @throws InvalidDeletionException
+	 *             if a key non-existent in a {@code BPlusTree} is attempted to be deleted from the {@code BPlusTree}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	public void delete(K k) throws InvalidDeletionException, IOException {
+		// please implement the body of this method
+		HashMap<Node<K>, InternalNode<K>> node2parent = new HashMap<Node<K>, InternalNode<K>>();
+		Node<K> l = find(k, root(), node2parent);
+		// node2parent associates each node on the search path with the parent node of that node
+		if (l != null)
+			delete(l, k, node2parent);
+	}
+
+	/**
+	 * Finds the {@code LeafNode} that is a descendant of the specified {@code Node} and must be responsible for the
+	 * specified key.
+	 * 
+	 * @param k
+	 *            a search key
+	 * @param n
+	 *            a {@code Node}
+	 * @param node2parent
+	 *            a {@code Map} to remember, for each visited {@code Node}, the parent of that {@code Node}
+	 * @return the {@code LeafNode} which is a descendant of the specified {@code Node} and must be responsible for the
+	 *         specified key
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	@SuppressWarnings("unchecked")
+	protected LeafNode<K, V> find(K k, Node<K> n,
+			Map<Node<K>, InternalNode<K>> node2parent) throws IOException {
+		if (n instanceof LeafNode)
+			return (LeafNode<K, V>) n;
+		else {
+			Node<K> c = ((InternalNode<K>) n).child(k);
+			node2parent.put(c, (InternalNode<K>) n);
+			return find(k, c, node2parent);
+		}
+	}
+
+	/**
+	 * Removes the specified key and the corresponding pointer from the specified {@code Node}.
+	 * 
+	 * @param n
+	 *            the {@code Node} from which the key and pointer are removed
+	 * @param k
+	 *            the key to remove
+	 * @param node2parent
+	 *            a {@code Map} remembering, for each visited {@code Node}, the parent of that {@code Node}
+	 * @throws InvalidDeletionException
+	 *             if a key non-existent in a {@code BPlusTree} is attempted to be deleted from the {@code BPlusTree}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	protected void delete(Node<K> n, K k, Map<Node<K>, InternalNode<K>> node2parent)
+			throws InvalidDeletionException, IOException {
+		// Remove the key from the node
+		n.remove(k);
+		
+		// Handle special case where n is the root
+		if (n.equals(root())) {
+			// If root is an internal node and only has one child left, promote that child to be the new root
+			if (n instanceof InternalNode && n.keyCount() == 0) {
+				InternalNode<K> internalRoot = (InternalNode<K>) n;
+				setRoot(internalRoot.pointer(0));
+			}
+			return;
+		}
+		
+		// Check if node has enough keys/pointers - if so, we're done
+		if (!n.isUnderUtilized()) {
+			return;
+		}
+		
+		// Node is under-utilized, so we need to either merge with a sibling or redistribute
+		InternalNode<K> parent = node2parent.get(n);
+		
+		// Look for siblings (either previous or next node)
+		Node<K> prevSibling = null;
+		Node<K> nextSibling = null;
+		K prevKey = null; // separating key between prevSibling and n
+		K nextKey = null; // separating key between n and nextSibling
+		
+		// Find which position n is at in the parent, and get its siblings
+		for (int i = 0; i < parent.childCount(); i++) {
+			if (parent.pointer(i).equals(n)) {
+				if (i > 0) {
+					prevSibling = parent.pointer(i - 1);
+					prevKey = parent.key(i - 1);
+				}
+				if (i < parent.keyCount()) {
+					nextSibling = parent.pointer(i + 1);
+					nextKey = parent.key(i);
+				}
+				break;
+			}
+		}
+		
+		// Try to merge with a sibling first (if they can fit in one node)
+		if (prevSibling != null && n.mergeable(prevSibling)) {
+			merge(prevSibling, prevKey, n, node2parent);
+		} else if (nextSibling != null && n.mergeable(nextSibling)) {
+			merge(n, nextKey, nextSibling, node2parent);
+		} 
+		// Can't merge, so redistribute keys/pointers from a sibling
+		else if (prevSibling != null) {
+			if (n instanceof InternalNode) {
+				redistributeRightInternal((InternalNode<K>) prevSibling, prevKey, (InternalNode<K>) n, parent);
+			} else {
+				redistributeRightLeaf((LeafNode<K, V>) prevSibling, prevKey, (LeafNode<K, V>) n, parent);
+			}
+		} else if (nextSibling != null) {
+			if (n instanceof InternalNode) {
+				redistributeLeftInternal((InternalNode<K>) n, nextKey, (InternalNode<K>) nextSibling, parent);
+			} else {
+				redistributeLeftLeaf((LeafNode<K, V>) n, nextKey, (LeafNode<K, V>) nextSibling, parent);
+			}
+		}
+	}
+
+	/**
+	 * Merges the specified {@code Node}s.
+	 * 
+	 * @param np
+	 *            a {@code Node}
+	 * @param kp
+	 *            a key
+	 * @param n
+	 *            a {@code Node}
+	 * @param node2parent
+	 *            a {@code Map} remembering, for each visited {@code Node}, the parent of that {@code Node}
+	 * @throws InvalidDeletionException
+	 *             if a key non-existent in a {@code BPlusTree} is attempted to be deleted from the {@code BPlusTree}
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	@SuppressWarnings("unchecked")
+	protected void merge(Node<K> np, K kp, Node<K> n,
+			Map<Node<K>, InternalNode<K>> node2parent)
+			throws InvalidDeletionException, IOException {
+		if (n instanceof InternalNode) // internal node
+			merge((InternalNode<K>) np, kp, (InternalNode<K>) n);
+		else
+			merge((LeafNode<K, V>) np, (LeafNode<K, V>) n);
+		InternalNode<K> parent = node2parent.get(n);
+		if (parent == null)
+			parent = node2parent.get(np);
+		delete(parent, kp, node2parent);
+	}
+
+	/**
+	 * Merges the specified {@code InternalNode}s.
+	 * 
+	 * @param np
+	 *            an {@code InternalNode}
+	 * @param kp
+	 *            a key
+	 * @param n
+	 *            an {@code InternalNode}
+	 */
+	protected void merge(InternalNode<K> np, K kp, InternalNode<K> n) {
+		// For internal nodes, we need to bring down the separating key from parent
+		int npKeyCount = np.keyCount();
+		
+		// Insert the parent's separating key and the first pointer from n
+		np.insert(kp, npKeyCount, n.pointer(0), npKeyCount + 1);
+		
+		// Now copy over the rest of n's keys and pointers
+		for (int i = 0; i < n.keyCount(); i++) {
+			np.insert(n.key(i), np.keyCount(), n.pointer(i + 1), np.childCount());
+		}
+	}
+
+	/**
+	 * Merges the specified {@code LeafNode}s.
+	 * 
+	 * @param np
+	 *            a {@code LeafNode}
+	 * @param n
+	 *            a {@code LeafNode}
+	 */
+	protected void merge(LeafNode<K, V> np, LeafNode<K, V> n) {
+		// Copy all entries from n into np
+		for (int i = 0; i < n.keyCount(); i++) {
+			np.insert(n.key(i), n.pointer(i));
+		}
+		// Fix the successor pointer to skip over n
+		np.setSuccessor(n.successor());
+	}
+
+	/**
+	 * Moves a key and a pointer from the first specified {@code InternalNode} to the second specified
+	 * {@code InternalNode}.
+	 * 
+	 * @param np
+	 *            an {@code InternalNode} from which a key and a pointer are removed
+	 * @param kp
+	 *            the key between the specified {@code InternalNode}s
+	 * @param n
+	 *            an {@code InternalNode} to which a key and a pointer are added
+	 * @param parent
+	 *            an {@code InternalNode} that is the parent of the specified {@code InternalNode}s.
+	 */
+	protected void redistributeRightInternal(InternalNode<K> np, K kp, InternalNode<K> n,
+			InternalNode<K> parent) {
+		int m = np.keyCount(); // let m be the index of the last pointer in np
+		K k = np.key(m - 1); // let k be the last key from np
+		n.insert(kp, 0, np.pointer(m), 0);
+		// insert the last key and pointer from np at the beginning of n
+		np.removeAt(m - 1, m); // remove the last key and pointer from np
+		parent.changeKey(np, n, k); // let k be the new key between np and p in their parent node
+	}
+
+	/**
+	 * Moves a key and a pointer from the second specified {@code InternalNode} to the first specified
+	 * {@code InternalNode}.
+	 * 
+	 * @param n
+	 *            an {@code InternalNode} to which a key and a pointer are added
+	 * @param kp
+	 *            the key between the specified {@code InternalNode}s
+	 * @param np
+	 *            an {@code InternalNode} from which a key and a pointer are removed
+	 * @param parent
+	 *            an {@code InternalNode} that is the parent of the specified {@code InternalNode}s.
+	 */
+	protected void redistributeLeftInternal(InternalNode<K> n, K kp, InternalNode<K> np,
+			InternalNode<K> parent) {
+		// Take the first key and pointer from np and move it to n
+		K k = np.key(0);
+		n.insert(kp, n.keyCount(), np.pointer(0), n.childCount());
+		np.removeAt(0, 0);
+		// Update parent's separating key
+		parent.changeKey(n, np, k);
+	}
+
+	/**
+	 * Moves a key and a pointer from the first specified {@code LeafNode} to the second specified {@code LeafNode}.
+	 * 
+	 * @param np
+	 *            a {@code LeafNode} from which a key and a pointer are removed
+	 * @param kp
+	 *            the key between the specified {@code LeafNode}s
+	 * @param n
+	 *            a {@code LeafNode} to which a key and a pointer are added
+	 * @param parent
+	 *            an {@code InternalNode} that is the parent of the specified {@code LeafNode}s.
+	 */
+	protected void redistributeRightLeaf(LeafNode<K, V> np, K kp, LeafNode<K, V> n,
+			InternalNode<K> parent) {
+		int m = np.keyCount() - 1; // let me be the index of the last key and pointer in np
+		K k = np.key(m); // let k be the last key from np
+		n.insert(0, k, np.pointer(m)); // insert the last key and pointer from np at the beginning of n
+		np.removeAt(m); // remove the last key and pointer from np
+		parent.changeKey(np, n, k); // let k be the new key between np and p in their parent node
+	}
+
+	/**
+	 * Moves a key and a pointer from the second specified {@code LeafNode} to the first specified {@code LeafNode}.
+	 * 
+	 * @param n
+	 *            a {@code LeafNode} to which a key and a pointer are added
+	 * @param kp
+	 *            the key between the specified {@code LeafNode}s
+	 * @param np
+	 *            a {@code LeafNode} from which a key and a pointer are removed
+	 * @param parent
+	 *            an {@code InternalNode} that is the parent of the specified {@code LeafNode}s.
+	 */
+	protected void redistributeLeftLeaf(LeafNode<K, V> n, K kp, LeafNode<K, V> np,
+			InternalNode<K> parent) {
+		// Move first entry from np to end of n
+		K k = np.key(0);
+		n.insert(k, np.pointer(0));
+		np.removeAt(0);
+		// Update the parent key to be np's new first key
+		parent.changeKey(n, np, np.key(0));
+	}
+
+}
