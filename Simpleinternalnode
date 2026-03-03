@@ -1,0 +1,186 @@
+package bptree.simple;
+
+import bptree.Node;
+import bptree.InternalNode;
+import bptree.BPlusTree.InvalidDeletionException;
+
+/**
+ * The {@code SimpleInternalNode} class is a simple implementation of the {@code InternalNode} interface.
+ * 
+ * @author Jeong-Hyon Hwang (jhh@cs.albany.edu)
+ * @param <K>
+ *            the type of keys
+ */
+public class SimpleInternalNode<K extends Comparable<K>> extends SimpleNode<K> implements InternalNode<K> {
+
+	/**
+	 * An automatically generated serial version UID.
+	 */
+	private static final long serialVersionUID = -5878186273639744395L;
+
+	/**
+	 * Constructs a {@code SimpleInternalNode}.
+	 * 
+	 * @param degree
+	 *            the degree of the {@code SimpleInternalNode}
+	 */
+	public SimpleInternalNode(int degree) {
+		super(degree);
+	}
+
+	/**
+	 * Constructs a {@code SimpleInternalNode} while adding the specified key and child {@code Node}s.
+	 * 
+	 * @param degree
+	 *            the degree of the {@code InternalNode}
+	 * @param n
+	 *            a child {@code Node}
+	 * @param k
+	 *            a key
+	 * @param nn
+	 *            a child {@code Node}
+	 */
+	public SimpleInternalNode(int degree, Node<K> n, K k, Node<K> nn) {
+		this(degree);
+		pointers[0] = n;
+		keys[0] = k;
+		pointers[1] = nn;
+		keyCount = 1;
+	}
+
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean isUnderUtilized() {
+		// Check if this node has fewer pointers than the minimum
+		// Min pointers = ceil(degree / 2)
+		int minPointers = (int) Math.ceil((pointers.length) / 2.0);
+		return childCount() < minPointers;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean mergeable(Node<K> other) {
+		// When merging internal nodes, we bring down a key from the parent
+		// So we need space for: our pointers + other's pointers (which is other's keys + 1)
+		int maxPointers = pointers.length;
+		return childCount() + other.keyCount() + 1 <= maxPointers;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public int childCount() {
+		return keyCount + 1;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public Node<K> child(K k) {
+		int i = 0;
+		for (; i < keyCount; i++) {
+			int c = k.compareTo(keys[i]);
+			if (c == 0)
+				return pointer(i + 1);
+			else if (c < 0)
+				return pointer(i);
+		}
+		return pointer(i);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void insertAfter(K k, Node<K> n, Node<K> c) {
+		int i = keyCount;
+		while (!pointers[i].equals(c)) {
+			keys[i] = keys[i - 1];
+			pointers[i + 1] = pointers[i];
+			i--;
+		}
+		keys[i] = k;
+		pointers[i + 1] = n;
+		keyCount++;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void copy(InternalNode<K> n, int beginIndex, int endIndex) {
+		clear();
+		super.append(n, beginIndex, endIndex - 1);
+		this.pointers[keyCount] = n.pointer(keyCount + beginIndex);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void insert(K k, int iK, Node<K> n, int iN) {
+		for (int i = keyCount; i > iK; i--)
+			keys[i] = keys[i - 1];
+		keys[iK] = k;
+		for (int i = keyCount + 1; i > iN; i--)
+			pointers[i] = pointers[i - 1];
+		pointers[iN] = n;
+		keyCount++;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void removeAt(int iK, int iN) {
+		for (int i = iK; i < keyCount - 1; i++)
+			keys[i] = keys[i + 1];
+		for (int i = iN; i < keyCount; i++)
+			pointers[i] = pointers[i + 1];
+		keys[keyCount - 1] = null;
+		pointers[keyCount] = null;
+		keyCount--;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void remove(K k) throws InvalidDeletionException {
+		int i = 0;
+		for (; i < keyCount; i++) {
+			if (keys[i].compareTo(k) == 0) {
+				for (int j = i; j < keyCount - 1; j++) {
+					keys[j] = keys[j + 1];
+					pointers[j + 1] = pointers[j + 2];
+				}
+				break;
+			}
+		}
+		if (i == keyCount)
+			throw new InvalidDeletionException("key: " + k);
+		keyCount--;
+		keys[keyCount] = null;
+		pointers[keyCount + 1] = null;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void changeKey(Node<K> n1, Node<K> n2, K k) {
+		for (int i = 0; i < keyCount; i++)
+			if (pointers[i].equals(n1) && pointers[i + 1].equals(n2)) {
+				keys[i] = k;
+				return;
+			}
+		throw new UnsupportedOperationException("There must be a bug in the code. This case must not happen!");
+	}
+}
